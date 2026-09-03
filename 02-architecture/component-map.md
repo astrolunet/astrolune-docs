@@ -55,7 +55,7 @@ that sees node, net and rpc together.
     tests/c/             behavioral suites and determinism fixture
     fuzz/                libFuzzer/corpus-runner targets and seed corpus
     cmake/               standards, warnings, sanitizer and target helpers
-    docs/                protocol and engineering specification
+    astrolune-docs/      protocol and engineering specification (separate repository)
 
 Peer discovery, transport encryption and the Trocto compiler remain future
 components. Durable storage reaches consensus state only through the existing
