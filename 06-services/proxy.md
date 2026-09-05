@@ -8,7 +8,7 @@ Nothing is implemented. This document records the open questions and one warning
 
 ## 1. The idea
 
-Routing traffic through network participants so that a user's traffic is not trivially attributable, and so that access to the network survives an adversary that blocks it. The comparison points are Tor, I2P, mixnets (Nym, Loopix), and VPN-over-blockchain designs.
+Routing traffic through network participants so that a user's traffic is not trivially attributable, and so that access to the network survives an adversary that blocks it. The comparison points are Tor, I2P, and mixnets (Nym, Loopix).
 
 ---
 
