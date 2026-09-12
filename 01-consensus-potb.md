@@ -445,43 +445,41 @@ identities, the attacker reaches ~8% total weight, well above the claimed
 is honest, but it means the "no one dominates" property depends entirely
 on COD's ability to detect correlation.
 
-**Recommended hardening:**
+**Hardening status: implemented for items 1 and 3; item 2 partial.**
 
-1. **Add a group weight cap.** If the sum of weights of nodes with a
-   `correlation_score` above some threshold exceeds X% of total weight,
-   all nodes in the group are downgraded to candidate level (50% weight
-   multiplier). This turns COD from a soft multiplier into a hard limit
-   on group influence.
+1. **[Implemented] Group weight cap.** `al_potb_detect_clusters()`
+   (`src/consensus/score.c`) performs union-find clustering over pairwise
+   correlation scores (threshold 0.30) and populates `cluster_size`,
+   `inbound_from_cluster`, and `correlation_score` per validator record.
+   `max_group_weight_share` in `al_potb_params` defaults to the proposed
+   `0.03` (3% of total network weight). This turns COD from a soft
+   multiplier into a hard limit on group influence, as intended.
 
-   **Proposed constant:** `max_group_weight_share = 0.03` (3% of total
-   network weight). Any correlated group of nodes exceeding this share is
-   capped.
+2. **[Partially implemented] Attestation diversity requirement.**
+   `al_potb_is_suspicious_cluster` still uses an 80% attestation-share
+   threshold rather than the tighter 50% proposed here for the group-cap
+   case. Tightening this threshold to align with the group cap remains
+   open.
 
-2. **Add an attestation diversity requirement.** A node's contribution to
-   TGW is zero if more than Y% of its incoming attestations come from
-   nodes in the same correlation group. This prevents a farm from
-   self-attesting to inflate TGW.
-
-   **Proposed constant:** `max_cluster_attestation_share = 0.5` (50%).
-   Partially implemented already in `al_potb_is_suspicious_cluster` with
-   an 80% threshold; for the group-cap case, tightening to 50% is
-   proposed.
-
-3. **Encode the group cap in the weight formula:**
+3. **[Implemented] Group cap encoded in the weight formula.**
+   `al_potb_weight_effective()` / `al_potb_weight_effective_total()`
+   compute exactly:
 
    ```
    effective_weight(node) = Weight(node) × min(1, max_group_weight_share / group_total_share)
    ```
 
-   This is a post-computation adjustment, not a change to the formula —
-   it preserves determinism, because group membership is computable from
-   on-chain data.
+   as a post-computation adjustment, preserving determinism since group
+   membership is computable from on-chain data.
 
-**Open question:** is 3% the right figure for the group cap? At 3% of
+**Still open:** is 3% the right figure for the group cap? At 3% of
 total weight, a coordinated group of 6 nodes (each at the 0.5% cap) could
 be capped if correlated. But 6 honest operators in the same data center
 would also be capped. The threshold needs calibration against realistic
 clustering patterns of honest operators — an input for section 1.10.3.
+The code ships `0.03` as the default and treats it as a configurable
+parameter, not a value frozen for production; calibration is unchanged as
+a prerequisite for locking it in.
 
 #### Genesis dilution schedule
 
@@ -638,7 +636,7 @@ described above:
 |---|---|---|---|
 | CAP_TBS | 0.005 (0.5%) | 0.003 (0.3%) | Reduces the effectiveness of "purchasable time"; verify in section 1.10.3 |
 | CAP_TGW | 0.005 (0.5%) | 0.003 (0.3%) | Same logic |
-| max_group_weight_share | none | 0.03 (3%) | Hard cap on correlated group influence |
+| max_group_weight_share | 0.03 (3%) — implemented as the shipped default | 0.03 (3%) | Hard cap on correlated group influence; value still awaits calibration (section 1.10.3), only its presence in code is no longer open |
 | max_cluster_attestation_share | 0.8 (80%) | 0.5 (50%) | Stricter self-attestation threshold |
 | loyalty_bonus_cap | undefined | 0.002 (0.2%) | Bounds long-term advantage |
 | loyalty_bonus_slope | undefined | 1.37e-6/day | Reaches the cap at roughly 5 years |
