@@ -37,7 +37,7 @@ with written-down open questions, not forgotten parts — see
 
 | Requirement | Target value |
 |---|---|
-| Block time | 400 ms – 1 s (honest range; depends on which VDF branch is chosen) |
+| Block time | 400 ms – 1 s, timer-driven round changes in the current implementation. The original 400 ms–1 s framing assumed a VRF/VDF-selected committee; VRF and VDF are not implemented and not used by consensus (see 02-architecture.md §2.6), so this row reflects the PoTB spec's original design intent rather than a currently active VDF-vs-VRF-only branch choice. |
 | VM determinism | 100% — no non-deterministic operations during execution |
 | Committee size | 100 nodes, partial rotation of ~10% per block |
 | Trust graph recomputation | once per epoch (1 day) |
@@ -81,10 +81,10 @@ introduced and defined where it's first used in a substantive way).
 | **TGW** | Trust Graph Weight | A component of node weight: position in the trust graph (SybilRank + TDI + external challenges). |
 | **NDM** | Network Diversity Multiplier | A soft multiplier based on ASN diversity. An auxiliary layer — bypassable with residential proxies. |
 | **COD** | Cluster Ownership Dampening | An anti-correlation multiplier: dampens the combined weight of statistically correlated groups of nodes. |
-| **VRF** | Verifiable Random Function | A verifiable random function; selects the committee for each block. |
-| **VDF** | Verifiable Delay Function | A function with a verifiable delay; protects the seed from time-based manipulation. |
+| **VRF** | Verifiable Random Function | Part of the original PoTB design for committee selection. **Not implemented in the current codebase** — no `al_vrf_*` functions ship; only an ABI-layout struct stub remains. See 02-architecture.md §2.6. |
+| **VDF** | Verifiable Delay Function | Part of the original PoTB design for seed-timing protection. **Not implemented in the current codebase** — no `al_vdf_*` functions ship; only an ABI-layout struct stub remains. The seed committee currently uses a hash-chain commit-reveal scheme instead. See 02-architecture.md §2.6. |
 | **BFT** | Byzantine Fault Tolerance | A class of finality algorithms resilient to a fraction of malicious participants. |
-| **Committee** | — | A set of 100 nodes, selected by VRF, that finalizes blocks. Partial rotation of ~10% per block. |
+| **Committee** | — | A set of 100 nodes that finalizes blocks, with partial rotation of ~10% per block. Selection in the current implementation does not use VRF (see above); committee construction is deterministic from the configured/registered validator set. |
 | **Epoch** | — | A period (1 day), at the end of which TGW is recomputed and external challenges are issued. |
 | **Quorum** | — | Votes needed for BFT finality: `floor(2n/3) + 1`. |
 | **ALVM** | Astrolune VM | The network's virtual machine — deterministically executes contract bytecode on every node. |

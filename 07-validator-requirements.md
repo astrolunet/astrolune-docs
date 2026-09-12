@@ -111,13 +111,13 @@ and can only be correctly determined after measurement on a real test bed
 
 | Parameter | Current placeholder value | What's needed for it to become final |
 |---|---|---|
-| Block time | 400 ms (VRF only) – 1 s (VDF) | Measuring p99 propose→commit latency on a real test bed |
+| Block time | 400 ms – 1 s, timer-driven round changes (VRF/VDF are not implemented or used; see section 2.6) | Measuring p99 propose→commit latency on a real test bed |
 | Committee size | 100 nodes | Verifying quorum-achievement rate at different sizes |
 | Committee rotation fraction | ~10% per block | Verifying stability and churn on the test bed |
 | Grace period | 60 days | Surveying real operators about legitimate downtime |
 | Decay half-life | 21 days | Same |
 | Slashing threshold | 2× network median | Verification under failure injection (5% of nodes offline, 10% packet loss) |
-| CAP_TBS / CAP_TGW | ≤0.5% of network (lowering to 0.3% is under discussion, section 1.10.1) | Verifying the lowering doesn't break committee selection |
+| CAP_TBS / CAP_TGW | Per-node caps now normalized by a correlation-group weight cap (`max_group_weight_share`, default 3% of network, `al_potb_weight_effective()`), superseding the earlier flat 0.5%/0.3% per-node threshold discussion | Full calibration on a real test bed (section 1.10.3) |
 | Epoch length | 1 day | — |
 
 **Practical takeaway for a prospective operator:** until the calibration
@@ -153,28 +153,33 @@ This is the single most important warning in this entire document, and
 it's deliberately repeated here, not only in the cryptography section.
 
 **The default cryptographic backend is deliberately insecure.**
-`al_crypto_is_secure()` returns `AL_FALSE` under any current build
-configuration. This means:
+`al_crypto_is_secure()` returns `AL_FALSE` on the default dev build
+configuration, and `AL_TRUE` when built with
+`ASTROLUNE_CRYPTO_BACKEND=sodium`. Concretely:
 
 - **Signatures are forgeable by default** by anyone who has read the
-  source code — the verified half of a signature is computable from
-  public data. Real Ed25519 is optionally available through
-  `ASTROLUNE_CRYPTO_BACKEND=sodium`, but requires explicit configuration
-  at build time.
-- **The VRF stub is not unpredictable** for the secret-key holder — that
-  is, the key holder theoretically can influence committee-selection
-  outcomes in a way not available to an external observer.
-- **The VDF stub has no compact proof** — verification costs as much as
-  computation, which defeats the entire point of a VDF.
+  source code — the verified half of a dev-backend signature is
+  computable from public data. Real Ed25519 is available through
+  `ASTROLUNE_CRYPTO_BACKEND=sodium`, which requires explicit configuration
+  at build time; the daemon also refuses the dev backend unless
+  `allow_insecure_crypto` / `--allow-insecure-crypto` is set.
+- **VRF and VDF are not implemented and not used by consensus** — there
+  is no VRF/VDF stub to be unpredictable or lack a compact proof, because
+  no VRF/VDF code exists in either backend. `al_crypto_is_secure()`
+  describes the signature backend only. The epoch seed uses a hash-chain
+  commit-reveal scheme instead (see section 2.6).
 
-**Practical consequence: even with the sodium backend enabled
-(`al_crypto_is_secure()` still returns `AL_FALSE`),** the network is not
-production-ready until the fate of VRF and VDF is resolved (see the
-migration checklist in section 2.6). Running a validator in an
-environment where economic or reputational value is expected to attach
-to the consensus outcome, before this migration is complete, means
-knowingly accepting the risk documented here — not a risk hidden from the
-reader.
+**Practical consequence: with the sodium backend enabled,
+`al_crypto_is_secure()` returns `AL_TRUE`** and signatures are real
+Ed25519. This does not by itself make the network production-ready for
+economic value — see the open boundaries in the project's `AUDIT.md`
+(peer discovery, committee vote topology at scale, PoTB calibration, and
+governance policy remain open) — but the specific VRF/VDF migration
+question that earlier revisions of this document flagged as blocking is
+resolved by removal, not left pending. Running a validator in an
+environment where economic or reputational value is expected to attach to
+the consensus outcome should still be treated as experimental until the
+remaining boundaries in `AUDIT.md` are closed.
 
 ## 7.6. Resilience and penalties — a practical operator summary
 

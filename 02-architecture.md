@@ -211,7 +211,7 @@ maturity.
 | Merkle trees | `src/crypto/merkle.c` | **Real.** |
 | Key derivation, addresses | `src/crypto/keys.c` | Address derivation is real; keypair derivation depends on the backend. |
 | Signatures | `src/crypto/dev_backend.c` or `sodium_backend.c` | Dev stub by default; real Ed25519 when sodium is explicitly configured. |
-| VRF and VDF | `src/crypto/dev_vrf_vdf.c` | **Insecure dev stubs.** Must be replaced or removed. |
+| VRF and VDF | *(removed)* | **Removed from the codebase.** `src/crypto/dev_vrf_vdf.c` no longer exists. Only ABI-compatible struct stubs (`al_vrf_proof`, `al_vdf_output`) remain in `crypto.h` for layout stability; no `al_vrf_*`/`al_vdf_*` functions ship. The seed committee uses a hash-chain instead (the "remove" branch of the migration checklist below). |
 
 ### One hash function: SHA-256
 
@@ -252,16 +252,25 @@ long-lived chain.
 
 ### Dev primitives — read before use
 
-The default backend and `src/crypto/dev_vrf_vdf.c` implement the
-`al_sign_*`, `al_vrf_*`, and `al_vdf_*` interfaces via hash constructions.
-The optional `ASTROLUNE_CRYPTO_BACKEND=sodium` configuration replaces only
-key derivation and signing with libsodium Ed25519. The remaining dev
-primitives mean `al_crypto_is_secure()` correctly returns `false` in both
-configurations.
+The default (dev) backend implements the `al_sign_*` interface via a hash
+construction. The optional `ASTROLUNE_CRYPTO_BACKEND=sodium` configuration
+replaces key derivation and signing with libsodium Ed25519, and
+`al_crypto_is_secure()` returns `AL_TRUE` on that backend — signatures are
+real. It still returns `AL_FALSE` on the default dev backend, which remains
+forgeable and gated behind `allow_insecure_crypto` /
+`--allow-insecure-crypto`.
 
-The dev implementation is: **deterministic and internally consistent**, so
-the node, VM, state machine, and the full test suite exercise real code
-paths; **not cryptographically secure** — it does not implement Ed25519.
+VRF and VDF are **not implemented and not used by consensus.** No
+`al_vrf_*`/`al_vdf_*` functions exist in either backend; `al_crypto_is_secure()`
+describes the active *signature* backend only and says nothing about VRF/VDF,
+because there is no VRF/VDF code path to describe. The epoch seed committee
+uses a hash-chain commit-reveal scheme instead (see the migration checklist
+below).
+
+The dev signing implementation is: **deterministic and internally
+consistent**, so the node, VM, state machine, and the full test suite
+exercise real code paths; **not cryptographically secure** — it does not
+implement Ed25519.
 
 What it actually does — a "signature" is two halves:
 
@@ -271,16 +280,8 @@ sig[32:64]  H(tag_bind || sk_scalar || message)    - carried, never verified
 ```
 
 The verified half is computable from public data. **Anyone can forge a
-signature for any key**, and anyone reading the source can see how.
-
-The VRF stub is deterministic and verifiable, but **not unpredictable to
-the secret-key holder.** Uniqueness and verifiability hold;
-unpredictability does not.
-
-The VDF stub is an iterated hash. It's genuinely sequential, but **without
-a compact proof**, so `al_vdf_verify` recomputes the entire chain and
-verification costs exactly as much as computation. Fast verification is
-the whole point of a VDF, and this stub doesn't have it.
+signature for any key**, and anyone reading the source can see how, as long
+as the dev backend is in use.
 
 **Why Ed25519 wasn't written from scratch:** Ed25519 isn't hard to
 implement incorrectly. A stub that's *obviously* and *loudly* broken is
@@ -288,52 +289,57 @@ safer than an implementation that's subtly broken — that's the worst
 possible failure mode for a signature scheme, because it's
 indistinguishable from a working implementation until it's attacked.
 
-**Guardrails:** every stub function is marked `AL_CRYPTO_INSECURE` in
+**Guardrails:** the dev signing stub is marked `AL_CRYPTO_INSECURE` in
 documentation; `al_crypto_backend()` reports the backend in use;
-`al_crypto_is_secure()` returns `AL_FALSE`; internal backend tags carry a
+`al_crypto_is_secure()` reflects the signature backend actually configured
+(`AL_FALSE` on dev, `AL_TRUE` on sodium); internal backend tags carry a
 `dev` segment, so they never collide with a protocol tag. This makes it
-harder to accidentally ship the stub to a public network. It doesn't make
-it impossible, and no build-system trick substitutes for actually
-completing the migration below.
+harder to accidentally ship the dev backend to a public network. It doesn't
+make it impossible, and the daemon's `allow_insecure_crypto` gate is the
+actual enforcement point, not this reporting function alone.
 
-### Migration checklist: dev backend → real Ed25519
+### Migration checklist: dev backend → real Ed25519 (complete for signing; VRF/VDF removed)
 
-Nothing outside `src/crypto/` depends on the construction, so this is
-isolated work. In order:
+Nothing outside `src/crypto/` depends on the construction, so this was
+isolated work. Status, in order:
 
 1. **Done:** source selection — the production signing path uses
    libsodium's `crypto_sign_ed25519` implementation.
-2. **Done for dev builds:** dependency added without breaking `tiny` —
-   sodium is an explicit configuration, `dev` and `tiny` without the
-   dependency continue to work. The production distribution still needs a
-   pinned static build of the dependency.
+2. **Done:** dependency added without breaking `tiny` — sodium is an
+   explicit configuration, `dev` and `tiny` without the dependency continue
+   to work. The production distribution still needs a pinned static build
+   of the dependency.
 3. **Done:** the key and signing API is implemented against libsodium,
    preserving the existing ABI width (32-byte public, 64-byte secret key).
 4. **Done:** explicit rejection of non-canonical signatures — the adapter
    checks `S < L` before calling libsodium.
-5. **Done for this implementation:** the cofactor question is resolved —
-   Astrolune accepts libsodium's strict Ed25519 verification semantics,
-   including rejection of non-canonical points and small-order
-   components. Alternative node implementations must match this
-   acceptance rule.
-6. **Replace VRF** with a real construction (RFC 9381
-   ECVRF-EDWARDS25519-SHA512-TAI is an obvious candidate, using the same
-   curve). Keep `AL_VRF_PROOF_SIZE` accurate — 80 bytes is the ECVRF
-   proof size.
-7. **Replace or remove VDF.** If the VRF-only branch is chosen (section
-   1.5), `al_vdf_*` should be deleted, not left as a stub that looks
-   usable.
-8. **Set `al_crypto_is_secure()` to `AL_TRUE`** as the last step, only
-   after all previous steps are done. The sodium build already reports
-   `AL_CRYPTO_BACKEND_ED25519`, describing its signing implementation,
-   while the deployment gate remains false.
-9. **Done for Ed25519:** RFC 8032 test vectors added.
-10. **Run the test suite under `asan`** — the sanitizer preset exists
-    because ASan and UBSan findings turn into non-deterministic
-    execution, which for a blockchain means a chain split, not a crash.
+5. **Done:** the cofactor question is resolved — Astrolune accepts
+   libsodium's strict Ed25519 verification semantics, including rejection
+   of non-canonical points and small-order components. Alternative node
+   implementations must match this acceptance rule.
+6. **Resolved by removal, not replacement.** VRF is not part of the
+   deployment path. No `al_vrf_*` function ships; `al_vrf_proof` survives
+   only as an ABI-layout stub in `crypto.h`.
+7. **Done — VDF removed.** `al_vdf_*` has been deleted, not left as a stub
+   that looks usable; `al_vdf_output` survives only as an ABI-layout stub.
+   The seed committee uses a hash-chain commit-reveal scheme instead.
+8. **Done:** `al_crypto_is_secure()` returns `AL_TRUE` on the sodium
+   backend. Since VRF/VDF are removed rather than pending, the function
+   describes the signature backend only — there is no VRF/VDF status left
+   for it to gate on.
+9. **Done:** RFC 8032 test vectors added.
+10. **Outstanding:** run the full test suite under the `asan` preset on the
+    exact release revision in CI — the sanitizer preset exists because
+    ASan and UBSan findings turn into non-deterministic execution, which
+    for a blockchain means a chain split, not a crash. The `sanitizers` CI
+    job is configured; confirming it green on a specific release tag is
+    still a release-gate item, not a code gap.
 
-Until step 8, `al_crypto_is_secure()` returning `AL_FALSE` is correct and
-should not be edited to silence a warning.
+`al_crypto_is_secure()` now correctly distinguishes the two shipped
+backends: `AL_FALSE` on the default dev backend (forgeable, gated behind
+`allow_insecure_crypto`), `AL_TRUE` on the sodium backend (real Ed25519).
+Treat this function as the final deployment gate for signatures; it makes
+no claim about VRF/VDF because none remain in the tree.
 
 ### Constant-time discipline
 
